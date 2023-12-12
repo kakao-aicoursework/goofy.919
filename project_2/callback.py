@@ -1,7 +1,7 @@
 import logging
 
-import os
 import aiohttp
+from dotenv import load_dotenv
 from langchain.chains import LLMChain
 from langchain.chains import SequentialChain
 from langchain.chat_models import ChatOpenAI
@@ -10,9 +10,7 @@ from langchain.prompts.chat import ChatPromptTemplate
 from dto import ChatbotRequest
 
 # 환경 변수 처리 필요!
-with open("./key.txt", "r") as f:
-    openai_key = f.read().strip()
-    os.environ["OPENAI_API_KEY"] = openai_key
+load_dotenv()
 logger = logging.getLogger("Callback")
 
 PROMPT_TEMPLATE_PATH = "./prompt_template/project_data_카카오싱크.txt"
@@ -33,7 +31,7 @@ def create_chain(llm, template_path, output_key):
 async def callback_handler(request: ChatbotRequest) -> str:
     # ===================== start =================================
 
-    llm = ChatOpenAI(temperature=0.1, max_tokens=500, model="gpt-3.5-turbo-16k")
+    llm = ChatOpenAI(temperature=0.1, max_tokens=80, model="gpt-3.5-turbo-16k")
 
     # advisor template setting
     advisor_chain = create_chain(llm, RETURN_MESSAGE_TEMPLATE_PATH, "answer")
@@ -53,6 +51,7 @@ async def callback_handler(request: ChatbotRequest) -> str:
     )
     context = preprocess_chain(context)
     contents = advisor_chain(context)
+    logger.info(contents['answer'])
 
     payload = {
         "version": "2.0",
