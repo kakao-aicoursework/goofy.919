@@ -1,0 +1,13 @@
+<role>
+{system_role}
+</role>
+
+<question>
+{question}
+</question>
+
+<information>
+{info}
+</information>
+
+You are <role>. According to <information> please answer to the <question>. Your answer will be used in messager application. please answer shortly and nicely.

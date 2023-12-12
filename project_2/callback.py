@@ -1,51 +1,83 @@
-from dto import ChatbotRequest
-from samples import list_card
-import aiohttp
-import time
 import logging
-import openai
+
+import os
+import aiohttp
+from langchain.chains import LLMChain
+from langchain.chains import SequentialChain
+from langchain.chat_models import ChatOpenAI
+from langchain.prompts.chat import ChatPromptTemplate
+
+from dto import ChatbotRequest
 
 # 환경 변수 처리 필요!
-openai.api_key = ''
-SYSTEM_MSG = "당신은 카카오 서비스 제공자입니다."
+with open("./key.txt", "r") as f:
+    openai_key = f.read().strip()
+    os.environ["OPENAI_API_KEY"] = openai_key
 logger = logging.getLogger("Callback")
 
-async def callback_handler(request: ChatbotRequest) -> dict:
+PROMPT_TEMPLATE_PATH = "./prompt_template/project_data_카카오싱크.txt"
+RETURN_MESSAGE_TEMPLATE_PATH = "./prompt_template/return_message_guide.txt"
 
-    # ===================== start =================================
-    response = openai.ChatCompletion.create(
-        model="gpt-3.5-turbo",
-        messages=[
-            {"role": "system", "content": SYSTEM_MSG},
-            {"role": "user", "content": request.userRequest.utterance},
-        ],
-        temperature=0,
+
+def create_chain(llm, template_path, output_key):
+    return LLMChain(
+        llm=llm,
+        prompt=ChatPromptTemplate.from_template(
+            template=read_prompt_template(template_path),
+        ),
+        output_key=output_key,
+        verbose=True,
     )
-    # focus
-    output_text = response.choices[0].message.content
 
-   # 참고링크 통해 payload 구조 확인 가능
+
+async def callback_handler(request: ChatbotRequest) -> str:
+    # ===================== start =================================
+
+    llm = ChatOpenAI(temperature=0.1, max_tokens=500, model="gpt-3.5-turbo-16k")
+
+    # advisor template setting
+    advisor_chain = create_chain(llm, RETURN_MESSAGE_TEMPLATE_PATH, "answer")
+
+    preprocess_chain = SequentialChain(
+        chains=[
+            advisor_chain,
+        ],
+        input_variables=["system_role", "question", "info"],
+        verbose=True,
+    )
+
+    context = dict(
+        system_role="messanger application QA advidor",  # TODO
+        question=request.userRequest.utterance,
+        info=read_prompt_template(PROMPT_TEMPLATE_PATH)
+    )
+    context = preprocess_chain(context)
+    contents = advisor_chain(context)
+
     payload = {
         "version": "2.0",
         "template": {
             "outputs": [
                 {
                     "simpleText": {
-                        "text": output_text
+                        "text": contents['answer']
                     }
                 }
             ]
         }
     }
+
     # ===================== end =================================
     # 참고링크1 : https://kakaobusiness.gitbook.io/main/tool/chatbot/skill_guide/ai_chatbot_callback_guide
     # 참고링크1 : https://kakaobusiness.gitbook.io/main/tool/chatbot/skill_guide/answer_json_format
-
-    time.sleep(1.0)
-
     url = request.userRequest.callbackUrl
-
     if url:
         async with aiohttp.ClientSession() as session:
             async with session.post(url=url, json=payload, ssl=False) as resp:
                 await resp.json()
+
+
+def read_prompt_template(file_path: str) -> str:
+    with open(file_path, 'r') as f:
+        promt_template = f.read()
+        return promt_template
