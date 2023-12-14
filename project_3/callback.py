@@ -1,3 +1,4 @@
+import logging
 import os
 
 import requests
@@ -8,7 +9,7 @@ from dotenv import load_dotenv
 
 from db import query_db
 from dto import ChatbotRequest
-
+from history import get_chat_history, load_conversation_history, log_user_message, log_bot_message
 
 load_dotenv()
 assert os.environ["OPENAI_API_KEY"] is not None
@@ -41,7 +42,7 @@ answer_chain = LLMChain(
     llm=llm,
     prompt=ChatPromptTemplate.from_template(
         template="""
-            Your job is to answer the query based on information.
+            Your job is to answer the <query> based on <information>. please refer to <History> between You and user. 
 
             <Information>
             {information}
@@ -50,6 +51,10 @@ answer_chain = LLMChain(
             <Query>
             {query}
             </Query>
+            
+            <History>
+            {chat_history}
+            </History>
         """
     ),
     verbose=True
@@ -59,7 +64,7 @@ summary_chain = LLMChain(
     llm=llm,
     prompt=ChatPromptTemplate.from_template(
         template="""
-            Your role is to summarize the answer in 3 sentences or so.
+            Your role is to summarize the answer in 3 sentences or so. 
             <answer>
              {expert_answer}
             </answer>
@@ -78,10 +83,15 @@ business logic
 """
 
 
-def callback_handler(request: ChatbotRequest):
-    msg = request.userRequest.utterance
+def callback_handler(request: ChatbotRequest, conversation_id='goofy2023'):
+    history_file = load_conversation_history(conversation_id)
 
+    # given
+    msg = request.userRequest.utterance
     context = {}
+    context["chat_history"] = get_chat_history(conversation_id)
+
+    # logic
     intent = parse_intent_chain.run(msg)
     if intent in ["kakao_sync", "kakao_channel", "kakao_social"]:
         infos = query_db(msg)
@@ -97,6 +107,9 @@ def callback_handler(request: ChatbotRequest):
     context["expert_answer"] = output
     answer = summary_chain.run(context)
 
+    # then
+    log_user_message(history_file, msg)
+    log_bot_message(history_file, answer)
     response_callback(answer, request)
 
 
